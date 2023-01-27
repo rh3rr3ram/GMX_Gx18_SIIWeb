@@ -1,0 +1,135 @@
+<Project DefaultTargets="SHOW" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<PropertyGroup>
+		<GX_INSTALL_DIR Condition=" '$(GX_INSTALL_DIR)' == '' ">$(MSBuildThisFileDirectory)</GX_INSTALL_DIR>
+		<CreatedKB>1</CreatedKB>
+	</PropertyGroup>
+
+	<Import Project="$(GX_INSTALL_DIR)GeneXus.Tasks.targets" Condition=" Exists('$(GX_INSTALL_DIR)GeneXus.Tasks.targets') "/>	
+	<Import Project="$(GX_INSTALL_DIR)\genexus.server.tasks.targets" Condition=" Exists('$(GX_INSTALL_DIR)GeneXus.Tasks.targets') "/>
+	<Import Project="$(GX_INSTALL_DIR)\Genexus.GAM.Tasks.targets" />
+	<Import Project="$(GX_INSTALL_DIR)\GXtest.targets" />
+
+	
+	<PropertyGroup>
+		<!--Input Parameters-->
+		<DoUpdate>True</DoUpdate>
+		
+		<!-- Server Properties -->
+		<ServerUrl></ServerUrl>
+		<ServerUsername></ServerUsername>
+		<ServerPassword></ServerPassword>
+		<ServerKbAlias></ServerKbAlias>
+		<VersionName></VersionName>
+
+		<!-- Working KB Properties -->
+		<WorkingDirectory></WorkingDirectory>
+		<DbaseServerInstance></DbaseServerInstance>
+		<CreateDbInKbFolder></CreateDbInKbFolder>
+		<DbaseUseIntegratedSecurity></DbaseUseIntegratedSecurity>
+		<DbaseServerUsername></DbaseServerUsername>
+		<DbaseServerPassword></DbaseServerPassword>
+		<DbaseName></DbaseName>
+		<WorkingVersion></WorkingVersion>
+		<WorkingEnvironment></WorkingEnvironment>
+		<SQLInstance></SQLInstance>
+		<AppDB></AppDB>
+
+		<!-- KB GAM Properties -->
+		<IncludeFrontendObjects></IncludeFrontendObjects> 
+        <IncludeSDSamples></IncludeSDSamples> 
+        <UpdateMode></UpdateMode> 
+
+		<!-- Building Properties -->
+		<ForceRebuild Condition=" '$(ForceRebuild)' == '' ">false</ForceRebuild>
+		
+		<!-- Environment Propreties -->
+
+		<!-- Testing Properties -->
+		<TestObjectsList></TestObjectsList>
+		<TestType></TestType>
+		<TestFilePath></TestFilePath>
+
+	</PropertyGroup>
+	
+	<Target Name="SHOW" > 
+        <Message Text="	 - CreateOrUpdate" />
+		<Message Text="  - BuildAzure" />
+	</Target>
+
+	<Target Name="CreateOrUpdateKB">
+		<Error Message="Failed to import '$(GX_INSTALL_DIR)GeneXus.Tasks.targets'. Try setting the property GX_INSTALL_DIR to an actual GeneXus installation path." Condition=" !Exists('$(GX_INSTALL_DIR)GeneXus.Tasks.targets') " />
+		<ItemGroup>
+			<GXWFile Include="$(WorkingDirectory)\*.gxw"/>
+		</ItemGroup>
+		<CallTarget Targets="CreateKB" Condition="'@(GXWFile)'==''"/>
+		<CallTarget Targets="UpdateKB" Condition="'@(GXWFile)'!='' and $(DoUpdate)"/>
+	</Target>
+
+	<Target Name="CreateKB">
+		<Message Text="[GXBUILD:INFO] Creating KB '$(ServerKbAlias)' at '$(WorkingDirectory)' // SQLServer instance: $(SQLServerInstanceHost) // GXserver URI: $(KBServerUri) / GXserver User: $(GXserverUserName)" Importance="high" />
+		<PropertyGroup>
+			<KBGuid>$([System.Guid]::NewGuid())</KBGuid>
+		</PropertyGroup>
+
+		<CreateKnowledgeBaseFromServer
+			ServerKBAlias="$(ServerKbAlias)"
+			ServerUri="$(ServerUrl)"
+			Directory="$(WorkingDirectory)"
+			CreateDbInKbFolder="$(CreateDbInKbFolder)"
+			DBName="$(DbaseName)_$(KBGuid)"
+			ServerUserName="$(ServerUsername)"
+			ServerPassword="$(ServerPassword)"/>
+
+		<WriteLinesToFile
+            File="$(WorkingDirectory)\updateCount.txt"
+			Lines="1"
+            Overwrite="true"/>
+
+	</Target>
+
+	<Target Name="UpdateKB">
+		<OpenKnowledgeBase Directory="$(WorkingDirectory)"/>
+		<UpdateFromServer
+			ServerUserName="$(ServerUsername)"
+			ServerPassword="$(ServerPassword)"
+			OutputFile="$(BPUpdateLogFile)">
+			<Output TaskParameter="ObjectsToUpdateQuantity" PropertyName="UpdatedObjectsCount"/>
+		</UpdateFromServer>
+		<CloseKnowledgeBase/>
+
+		<WriteLinesToFile
+            File="$(WorkingDirectory)\updateCount.txt"
+            Lines="$(UpdatedObjectsCount)"
+            Overwrite="true"/>
+	</Target>
+
+	<Target Name="Build">
+		<OpenKnowledgeBase Directory="$(WorkingDirectory)"/>
+		<SetDataStoreProperty Name="Database name" Value="$(AppDB)" />
+		<SetDataStoreProperty Name="Server name" Value="$(SQLInstance)" />
+		<SetGAMOptions 
+          	IncludeFrontendObjects="$(IncludeFrontendObjects)" 
+          	IncludeSDSamples="$(IncludeSDSamples)" 
+          	UpdateMode="$(UpdateMode)" />	
+		<BuildAll ForceRebuild="$(ForceRebuild)" CompileMains="true"/>
+	</Target>
+
+	<Target Name="RunTestSuite">
+        <OpenKnowledgeBase Directory="$(WorkingDirectory)" />
+        <RunTests Type="$(TestType)" TestObjects="$(testObjectsList)" AllowFailedTests="true" ContinueOnFailedBuild="True" DetailedResults="true" ServerUserName="$(ServerUsername)" ServerPassword="$(ServerPassword)">
+            <Output TaskParameter="ExecutedCount" PropertyName="ExecutedCount"/>
+            <Output TaskParameter="SuccessCount" PropertyName="SuccessCount"/>
+            <Output TaskParameter="ErrorCount" PropertyName="ErrorCount"/>
+            <Output TaskParameter="WarningCount" PropertyName="WarningCount"/>
+            <Output TaskParameter="SkippedCount" PropertyName="SkippedCount"/>
+            <Output TaskParameter="ResultsFile" PropertyName="ResultsFile"/>
+        </RunTests>
+        <JUnitExportTests ServerUserName="$(ServerUsername)" ServerPassword="$(ServerPassword)" JUnitTestFilePath="$(TestFilePath)">  
+            <Output TaskParameter="JUnitTestFilePath" PropertyName="JUnitTestFilePathOutput"/>
+        </JUnitExportTests>
+        <CloseKnowledgeBase/>
+		<!-- Remove Error task if you don't desire pipeline failure upon test error. You may want to replace ErrorCount with WarningCount -->
+		<Error Text="Test execution failed. Check output file $(JUnitTestFilePathOutput)" Condition="$(ErrorCount) > 0" />
+    </Target>
+
+</Project>
